@@ -9,7 +9,7 @@ from PyQt5.QtGui import QFont, QColor
 
 # Import Matplotlib untuk integrasi GUI PyQt5
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
@@ -134,25 +134,33 @@ class AddAssetDialog(QDialog):
             self.type_input.setCurrentText(str(edit_data.get('asset_type', 'Warehouse')))
         
         self.capacity_input = QDoubleSpinBox()
+        self.capacity_input.setMinimum(0.1)
         self.capacity_input.setMaximum(10000)
+        self.capacity_input.setValue(10.0)
         if self.is_edit:
-            self.capacity_input.setValue(float(edit_data.get('capacity_tons', 0)))
+            self.capacity_input.setValue(float(edit_data.get('capacity_tons', 10.0)))
             
         self.price_input = QDoubleSpinBox()
+        self.price_input.setMinimum(1000)
         self.price_input.setMaximum(100000000)
         self.price_input.setSingleStep(1000000)
+        self.price_input.setValue(1000000)
         if self.is_edit:
-            self.price_input.setValue(float(edit_data.get('base_price', 0)))
+            self.price_input.setValue(float(edit_data.get('base_price', 1000000)))
             
         self.location_input = QDoubleSpinBox()
+        self.location_input.setMinimum(0.01)
         self.location_input.setMaximum(1.0)
         self.location_input.setSingleStep(0.1)
+        self.location_input.setValue(0.8)
         if self.is_edit:
-            self.location_input.setValue(float(edit_data.get('location_score', 0)))
+            self.location_input.setValue(float(edit_data.get('location_score', 0.8)))
             
         self.demand_input = QDoubleSpinBox()
+        self.demand_input.setMinimum(0.1)
         self.demand_input.setMaximum(2.0)
         self.demand_input.setSingleStep(0.1)
+        self.demand_input.setValue(1.0)
         if self.is_edit:
             self.demand_input.setValue(float(edit_data.get('demand_index', 1.0)))
         
@@ -203,16 +211,20 @@ class AddPartnerDialog(QDialog):
             self.req_type_input.setCurrentText(str(edit_data.get('req_type', 'Warehouse')))
         
         self.budget_input = QDoubleSpinBox()
+        self.budget_input.setMinimum(1000)
         self.budget_input.setMaximum(100000000)
         self.budget_input.setSingleStep(1000000)
+        self.budget_input.setValue(1000000)
         if self.is_edit:
-            self.budget_input.setValue(float(edit_data.get('budget', 0)))
+            self.budget_input.setValue(float(edit_data.get('budget', 1000000)))
             
         self.score_input = QDoubleSpinBox()
+        self.score_input.setMinimum(0.01)
         self.score_input.setMaximum(1.0)
         self.score_input.setSingleStep(0.1)
+        self.score_input.setValue(0.8)
         if self.is_edit:
-            self.score_input.setValue(float(edit_data.get('reliability_score', 0)))
+            self.score_input.setValue(float(edit_data.get('reliability_score', 0.8)))
         
         layout.addRow("Partner ID:", self.id_input)
         layout.addRow("Nama Mitra:", self.name_input)
@@ -424,10 +436,30 @@ class LogisticsApp(QMainWindow):
         self.canvas_partners = MplCanvas(self, width=5, height=4, dpi=100)
         chart_layout.addWidget(self.canvas_partners)
 
+    def clear_table(self, table_widget):
+        table_widget.clear()
+        table_widget.setRowCount(0)
+        table_widget.setColumnCount(0)
+
+    def reset_optimization_state(self):
+        self.optimized_df = None
+        self.matching_df = None
+        self.btn_match.setEnabled(False)
+        self.btn_export.setEnabled(False)
+        self.slider_margin.setEnabled(False)
+        self.clear_table(self.tab_pricing)
+        self.clear_table(self.tab_matches)
+        self.update_charts()
+
+    def reset_matching_state(self):
+        self.matching_df = None
+        self.btn_export.setEnabled(False)
+        self.clear_table(self.tab_matches)
+        self.update_charts()
+
     def update_charts(self):
+        self.canvas_pricing.axes.clear()
         if self.optimized_df is not None and not self.optimized_df.empty:
-            self.canvas_pricing.axes.clear()
-            
             x = self.optimized_df['asset_id']
             base = self.optimized_df['base_price'] / 1e6
             optimal = self.optimized_df['optimal_price'] / 1e6
@@ -445,11 +477,10 @@ class LogisticsApp(QMainWindow):
             self.canvas_pricing.axes.set_xticklabels(x)
             self.canvas_pricing.axes.legend()
             self.canvas_pricing.axes.grid(axis='y', linestyle='--', alpha=0.5)
-            self.canvas_pricing.draw()
+        self.canvas_pricing.draw()
 
+        self.canvas_partners.axes.clear()
         if self.partners_df is not None and not self.partners_df.empty:
-            self.canvas_partners.axes.clear()
-            
             names = self.partners_df['partner_name']
             budgets = self.partners_df['budget'] / 1e6
             
@@ -462,21 +493,24 @@ class LogisticsApp(QMainWindow):
             self.canvas_partners.axes.set_yticklabels(names)
             self.canvas_partners.axes.invert_yaxis()
             self.canvas_partners.axes.grid(axis='x', linestyle='--', alpha=0.5)
-            self.canvas_partners.draw()
+        self.canvas_partners.draw()
 
     def refresh_audit_logs(self):
         logs_df = load_audit_logs()
-        self.populate_table(self.tab_logs, logs_df)
+        self.filter_table(self.tab_logs, logs_df, self.search_logs.text())
 
     def filter_table(self, table_widget, original_df, keyword):
-        if original_df is None or original_df.empty:
+        if original_df is None:
+            self.clear_table(table_widget)
             return
-            
-        if not keyword.strip():
+
+        if original_df.empty or not keyword.strip():
             self.populate_table(table_widget, original_df)
             return
             
-        mask = original_df.astype(str).apply(lambda col: col.str.contains(keyword, case=False, na=False)).any(axis=1)
+        mask = original_df.astype(str).apply(
+            lambda col: col.str.contains(keyword, case=False, na=False, regex=False)
+        ).any(axis=1)
         filtered_df = original_df[mask]
         self.populate_table(table_widget, filtered_df)
 
@@ -484,11 +518,12 @@ class LogisticsApp(QMainWindow):
         self.assets_df = load_assets_data()
         self.partners_df = load_partners_data()
         
-        self.populate_table(self.tab_assets, self.assets_df)
-        self.populate_table(self.tab_partners, self.partners_df)
+        self.filter_table(self.tab_assets, self.assets_df, self.search_assets.text())
+        self.filter_table(self.tab_partners, self.partners_df, self.search_partners.text())
         
         log_activity("LOAD DATA", "Memuat data aset dan mitra dari database SQLite.")
         self.refresh_audit_logs()
+        self.update_charts()
         
         self.btn_optimize.setEnabled(True)
         self.btn_add_asset.setEnabled(True)
@@ -512,22 +547,17 @@ class LogisticsApp(QMainWindow):
             success, msg = save_asset_to_db(new_data)
             if success:
                 self.assets_df = load_assets_data()
-                self.populate_table(self.tab_assets, self.assets_df)
+                self.filter_table(self.tab_assets, self.assets_df, self.search_assets.text())
                 self.refresh_audit_logs()
+                self.reset_optimization_state()
                 self.tabs.setCurrentIndex(0)
                 QMessageBox.information(self, "Sukses", "Aset baru berhasil disimpan ke Database!")
-                
-                self.btn_match.setEnabled(False)
-                self.btn_export.setEnabled(False)
-                self.slider_margin.setEnabled(False)
-                self.tab_pricing.clear()
-                self.tab_matches.clear()
             else:
                 QMessageBox.warning(self, "Gagal Menyimpan", msg)
 
     def open_edit_asset_form(self):
         selected_row = self.tab_assets.currentRow()
-        if selected_row < 0:
+        if selected_row < 0 or self.tab_assets.item(selected_row, 0) is None:
             QMessageBox.warning(self, "Peringatan", "Pilih baris aset pada tabel 'Data Aset' yang ingin diedit terlebih dahulu.")
             return
             
@@ -540,21 +570,16 @@ class LogisticsApp(QMainWindow):
             success, msg = update_asset_in_db(updated_data)
             if success:
                 self.assets_df = load_assets_data()
-                self.populate_table(self.tab_assets, self.assets_df)
+                self.filter_table(self.tab_assets, self.assets_df, self.search_assets.text())
                 self.refresh_audit_logs()
+                self.reset_optimization_state()
                 QMessageBox.information(self, "Sukses", "Aset berhasil diperbarui!")
-                
-                self.btn_match.setEnabled(False)
-                self.btn_export.setEnabled(False)
-                self.slider_margin.setEnabled(False)
-                self.tab_pricing.clear()
-                self.tab_matches.clear()
             else:
                 QMessageBox.critical(self, "Error", msg)
 
     def delete_selected_asset(self):
         selected_row = self.tab_assets.currentRow()
-        if selected_row < 0:
+        if selected_row < 0 or self.tab_assets.item(selected_row, 0) is None:
             QMessageBox.warning(self, "Peringatan", "Pilih baris aset pada tabel 'Data Aset' yang ingin dihapus terlebih dahulu.")
             return
             
@@ -567,15 +592,10 @@ class LogisticsApp(QMainWindow):
             success, msg = delete_asset_from_db(asset_id)
             if success:
                 self.assets_df = load_assets_data()
-                self.populate_table(self.tab_assets, self.assets_df)
+                self.filter_table(self.tab_assets, self.assets_df, self.search_assets.text())
                 self.refresh_audit_logs()
+                self.reset_optimization_state()
                 QMessageBox.information(self, "Sukses", msg)
-                
-                self.btn_match.setEnabled(False)
-                self.btn_export.setEnabled(False)
-                self.slider_margin.setEnabled(False)
-                self.tab_pricing.clear()
-                self.tab_matches.clear()
             else:
                 QMessageBox.critical(self, "Error", msg)
 
@@ -590,17 +610,17 @@ class LogisticsApp(QMainWindow):
             success, msg = save_partner_to_db(new_data)
             if success:
                 self.partners_df = load_partners_data()
-                self.populate_table(self.tab_partners, self.partners_df)
+                self.filter_table(self.tab_partners, self.partners_df, self.search_partners.text())
                 self.refresh_audit_logs()
+                self.reset_matching_state()
                 self.tabs.setCurrentIndex(1)
                 QMessageBox.information(self, "Sukses", "Mitra baru berhasil disimpan ke Database!")
-                self.btn_export.setEnabled(False)
             else:
                 QMessageBox.warning(self, "Gagal Menyimpan", msg)
 
     def open_edit_partner_form(self):
         selected_row = self.tab_partners.currentRow()
-        if selected_row < 0:
+        if selected_row < 0 or self.tab_partners.item(selected_row, 0) is None:
             QMessageBox.warning(self, "Peringatan", "Pilih baris mitra pada tabel 'Data Mitra' yang ingin diedit terlebih dahulu.")
             return
             
@@ -613,16 +633,16 @@ class LogisticsApp(QMainWindow):
             success, msg = update_partner_in_db(updated_data)
             if success:
                 self.partners_df = load_partners_data()
-                self.populate_table(self.tab_partners, self.partners_df)
+                self.filter_table(self.tab_partners, self.partners_df, self.search_partners.text())
                 self.refresh_audit_logs()
+                self.reset_matching_state()
                 QMessageBox.information(self, "Sukses", "Mitra berhasil diperbarui!")
-                self.btn_export.setEnabled(False)
             else:
                 QMessageBox.critical(self, "Error", msg)
 
     def delete_selected_partner(self):
         selected_row = self.tab_partners.currentRow()
-        if selected_row < 0:
+        if selected_row < 0 or self.tab_partners.item(selected_row, 0) is None:
             QMessageBox.warning(self, "Peringatan", "Pilih baris mitra pada tabel 'Data Mitra' yang ingin dihapus terlebih dahulu.")
             return
             
@@ -635,10 +655,10 @@ class LogisticsApp(QMainWindow):
             success, msg = delete_partner_from_db(partner_id)
             if success:
                 self.partners_df = load_partners_data()
-                self.populate_table(self.tab_partners, self.partners_df)
+                self.filter_table(self.tab_partners, self.partners_df, self.search_partners.text())
                 self.refresh_audit_logs()
+                self.reset_matching_state()
                 QMessageBox.information(self, "Sukses", msg)
-                self.btn_export.setEnabled(False)
             else:
                 QMessageBox.critical(self, "Error", msg)
 
@@ -679,6 +699,10 @@ class LogisticsApp(QMainWindow):
                 self.matching_df = matcher.match_assets_to_partners(self.optimized_df, self.partners_df)
                 if not self.matching_df.empty:
                     self.populate_table(self.tab_matches, self.matching_df)
+                    self.btn_export.setEnabled(True)
+                else:
+                    self.clear_table(self.tab_matches)
+                    self.btn_export.setEnabled(False)
 
     def match_partners(self):
         if self.optimized_df is None or self.optimized_df.empty:
@@ -689,7 +713,7 @@ class LogisticsApp(QMainWindow):
         
         if self.matching_df.empty:
             QMessageBox.warning(self, "Hasil", "Tidak ada mitra yang cocok dengan kriteria saat ini.")
-            self.tab_matches.clear()
+            self.clear_table(self.tab_matches)
             self.btn_export.setEnabled(False)
         else:
             self.populate_table(self.tab_matches, self.matching_df)
@@ -704,7 +728,7 @@ class LogisticsApp(QMainWindow):
             return
 
         options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(
+        file_path, selected_filter = QFileDialog.getSaveFileName(
             self, 
             "Simpan Laporan Logistik", 
             "Laporan_Optimasi_Logistik.xlsx", 
@@ -714,12 +738,20 @@ class LogisticsApp(QMainWindow):
         
         if file_path:
             try:
-                if file_path.endswith('.xlsx'):
+                lower_path = file_path.lower()
+                if not (lower_path.endswith('.xlsx') or lower_path.endswith('.csv')):
+                    if 'csv' in selected_filter.lower():
+                        file_path += '.csv'
+                    else:
+                        file_path += '.xlsx'
+                    lower_path = file_path.lower()
+
+                if lower_path.endswith('.xlsx'):
                     with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
                         self.matching_df.to_excel(writer, sheet_name='Rekomendasi_Mitra', index=False)
                         display_pricing = self.optimized_df[['asset_id', 'asset_type', 'base_price', 'optimal_price']]
                         display_pricing.to_excel(writer, sheet_name='Harga_Optimal', index=False)
-                elif file_path.endswith('.csv'):
+                elif lower_path.endswith('.csv'):
                     self.matching_df.to_csv(file_path, index=False)
                 
                 log_activity("EXPORT", f"Mengekspor laporan ke file: {file_path}")

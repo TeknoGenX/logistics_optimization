@@ -1,11 +1,13 @@
+import os
 import pandas as pd
 import sqlite3
 from datetime import datetime
 
-DB_FILE = "logistics.db"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_FILE = os.path.join(BASE_DIR, "logistics.db")
 
 def init_db():
-    """Inisialisasi database SQLite, buat tabel jika belum ada, dan isi data awal."""
+    """Inisialisasi database SQLite, buat tabel jika belum ada, dan isi data awal satu kali."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
@@ -41,33 +43,48 @@ def init_db():
             description TEXT
         )
     ''')
+
+    # Buat tabel metadata untuk mencatat status inisialisasi data awal (seeding)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS app_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
     
-    # Jika tabel assets kosong, masukkan data awal
-    cursor.execute("SELECT COUNT(*) FROM assets")
-    if cursor.fetchone()[0] == 0:
-        initial_assets = [
-            ('AST-001', 'Warehouse', 5000, 10000000, 0.9, 1.2),
-            ('AST-002', 'Truck', 20, 2500000, 0.7, 1.0),
-            ('AST-003', 'Cold Storage', 1000, 15000000, 0.85, 1.5)
-        ]
-        cursor.executemany("INSERT INTO assets VALUES (?,?,?,?,?,?)", initial_assets)
-        
-    # Jika tabel partners kosong, masukkan data awal
-    cursor.execute("SELECT COUNT(*) FROM partners")
-    if cursor.fetchone()[0] == 0:
-        initial_partners = [
-            ('PTN-101', 'Logistik Cepat', 'Warehouse', 11500000, 0.95),
-            ('PTN-102', 'Trans Nusantara', 'Truck', 2000000, 0.80),
-            ('PTN-103', 'Segar ColdChain', 'Cold Storage', 20000000, 0.90),
-            ('PTN-104', 'Agro Makmur', 'Warehouse', 10500000, 0.85)
-        ]
-        cursor.executemany("INSERT INTO partners VALUES (?,?,?,?,?)", initial_partners)
+    cursor.execute("SELECT value FROM app_meta WHERE key = 'seeded'")
+    is_seeded = cursor.fetchone() is not None
+
+    if not is_seeded:
+        # Jika tabel assets kosong saat pertama kali inisialisasi, masukkan data awal
+        cursor.execute("SELECT COUNT(*) FROM assets")
+        if cursor.fetchone()[0] == 0:
+            initial_assets = [
+                ('AST-001', 'Warehouse', 5000, 10000000, 0.9, 1.2),
+                ('AST-002', 'Truck', 20, 2500000, 0.7, 1.0),
+                ('AST-003', 'Cold Storage', 1000, 15000000, 0.85, 1.5)
+            ]
+            cursor.executemany("INSERT INTO assets VALUES (?,?,?,?,?,?)", initial_assets)
+            
+        # Jika tabel partners kosong saat pertama kali inisialisasi, masukkan data awal
+        cursor.execute("SELECT COUNT(*) FROM partners")
+        if cursor.fetchone()[0] == 0:
+            initial_partners = [
+                ('PTN-101', 'Logistik Cepat', 'Warehouse', 11500000, 0.95),
+                ('PTN-102', 'Trans Nusantara', 'Truck', 2000000, 0.80),
+                ('PTN-103', 'Segar ColdChain', 'Cold Storage', 20000000, 0.90),
+                ('PTN-104', 'Agro Makmur', 'Warehouse', 10500000, 0.85)
+            ]
+            cursor.executemany("INSERT INTO partners VALUES (?,?,?,?,?)", initial_partners)
+
+        cursor.execute("INSERT INTO app_meta (key, value) VALUES ('seeded', '1')")
         
     conn.commit()
     conn.close()
 
 def log_activity(action_type, description):
     """Mencatat aktivitas pengguna ke dalam tabel audit_logs dengan timestamp saat ini."""
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -99,6 +116,7 @@ def load_partners_data():
     return df
 
 def save_asset_to_db(data):
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
@@ -116,6 +134,7 @@ def save_asset_to_db(data):
     return success, msg
 
 def save_partner_to_db(data):
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
@@ -133,6 +152,7 @@ def save_partner_to_db(data):
     return success, msg
 
 def update_asset_in_db(data):
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
@@ -155,6 +175,7 @@ def update_asset_in_db(data):
     return success, msg
 
 def update_partner_in_db(data):
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
@@ -177,6 +198,7 @@ def update_partner_in_db(data):
     return success, msg
 
 def delete_asset_from_db(asset_id):
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
@@ -194,6 +216,7 @@ def delete_asset_from_db(asset_id):
     return success, msg
 
 def delete_partner_from_db(partner_id):
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:

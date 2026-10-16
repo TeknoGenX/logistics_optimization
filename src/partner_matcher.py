@@ -9,12 +9,15 @@ class PartnerMatcher:
         for _, asset in optimized_assets_df.iterrows():
             for _, partner in partners_df.iterrows():
                 if asset['asset_type'] == partner['req_type']:
-                    price_diff = partner['budget'] - asset['optimal_price']
+                    optimal_price = asset['optimal_price']
+                    price_diff = partner['budget'] - optimal_price
                     
-                    if price_diff >= 0:
+                    if optimal_price <= 0:
+                        financial_fit = 1.0 if partner['budget'] >= 0 else 0.0
+                    elif price_diff >= 0:
                         financial_fit = 1.0
                     else:
-                        financial_fit = max(0, 1 - (abs(price_diff) / asset['optimal_price']))
+                        financial_fit = max(0, 1 - (abs(price_diff) / optimal_price))
                     
                     match_score = (financial_fit * 0.7) + (partner['reliability_score'] * 0.3)
                     match_score = round(match_score * 100, 2)
